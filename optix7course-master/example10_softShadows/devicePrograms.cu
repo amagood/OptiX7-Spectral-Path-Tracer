@@ -22,7 +22,7 @@
 #include "LaunchParams.h"
 #include "gdt/random/random.h"
 
-#define SPECTRAL_MODE
+//#define SPECTRAL_MODE
 
 #ifdef SPECTRAL_MODE
 #include "color.cuh"
@@ -693,7 +693,14 @@ namespace osc
             }
 
             if(prd.isEnd)
+            {
+#ifdef SPECTRAL_MODE
                 pixelColor += prd.pixelColor * getWhiteWavelengthDistribution(prd.lambda) * 400;
+#else
+                pixelColor += prd.pixelColor;
+#endif
+            }
+
         }
 
         //pixelColor *= vec3f(1.0f/0.300985f, 1.0f / 0.274355f, 1.0f / 0.216741f);  //rgb color space normalize
