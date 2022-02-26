@@ -25,7 +25,11 @@ include_directories("../common/")
 link_directories("../common/lib")
 
 
-cuda_compile_and_embed(embedded_ptx_code devicePrograms.cu color.cuh)
+cuda_compile_and_embed(embedded_ptx_code
+                            devicePrograms.cu
+                            color.cuh
+                            myString.cuh
+                            )
 
 add_executable(ex10_softShadows
         ${embedded_ptx_code}
