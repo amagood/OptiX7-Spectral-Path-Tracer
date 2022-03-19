@@ -22,14 +22,11 @@ include_directories("../common/imgui")
 include_directories("../common/GL")
 include_directories("../common/imgui/backends")
 include_directories("../common/")
+include_directories("../common/3rdParty")
 link_directories("../common/lib")
 
 
-cuda_compile_and_embed(embedded_ptx_code
-                            devicePrograms.cu
-                            color.cuh
-                            myString.cuh
-                            )
+cuda_compile_and_embed(embedded_ptx_code devicePrograms.cu color.cuh)
 
 add_executable(ex10_softShadows
         ${embedded_ptx_code}
@@ -40,6 +37,7 @@ add_executable(ex10_softShadows
         SampleRenderer.cpp
         Model.h
         Model.cpp
+        ../common/3rdParty/stb_image_write.h
         main.cpp
         )
 

@@ -26,6 +26,17 @@
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
 
+#include <string>
+#include <vector>
+
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
+
+#define AutoSaveImageAtNthFrame
+#ifdef AutoSaveImageAtNthFrame
+#define FrameToSave 100
+#endif
+
 /*! \namespace osc - Optix Siggraph Course */
 namespace osc
 {
@@ -58,19 +69,40 @@ namespace osc
         virtual void imgui() override
         {
             //ImGui::ShowDemoWindow();
+            sample.downloadPixels(pixels.data());
 
             ImGui::Begin("fps counter");
+            ImGui::Text("Frame ID: %d", sample.getAccumID());
             ImGui::Text("Application %.3f ms/frame (%.1f FPS)", ImGui::GetIO().DeltaTime * 1000.f, 1.f / ImGui::GetIO().DeltaTime);
             ImGui::Text("Average of 120Frame %.3f ms/frame (%.1f FPS)", 1000.f/ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
             ImGui::Text("Camera: position: (%f,%f,%f), at(%f,%f,%f)", cameraFrame.get_from().x, cameraFrame.get_from().y, cameraFrame.get_from().z, cameraFrame.get_at().x, cameraFrame.get_at().y, cameraFrame.get_at().z);
+            if(ImGui::Button("Save Image"))
+            {
+                std::string outputPath("../../outputImage/");
+                outputPath += std::to_string(sample.getAccumID()) + std::string("th Frame manuallyOutput.png");
+                std::cout << "outputting file to " << outputPath << std::endl;
+
+                stbi_write_png(outputPath.c_str(), fbSize.x, fbSize.y, 4, pixels.data(), 4 * fbSize.x);
+            }
+
             ImGui::End();
 
+#ifdef AutoSaveImageAtNthFrame
+            if(sample.getAccumID() == FrameToSave)
+            {
+                std::string outputPath("../../outputImage/");
+                outputPath += std::to_string(FrameToSave) + std::string("th Frame autoOutput.png");
+                std::cout << "outputting file to " << outputPath << std::endl;
 
+                stbi_write_png(outputPath.c_str(), fbSize.x, fbSize.y, 4, pixels.data(), 4 * fbSize.x);
+
+            }
+#endif
         }
 
         virtual void draw() override
         {
-            sample.downloadPixels(pixels.data());
+
             if (fbTexture == 0)
                 glGenTextures(1, &fbTexture);
 
@@ -97,7 +129,7 @@ namespace osc
 
             glMatrixMode(GL_PROJECTION);
             glLoadIdentity();
-            glOrtho(0.f, (float) fbSize.x, 0.f, (float) fbSize.y, -1.f, 1.f);
+            glOrtho(0.f, (float) fbSize.x, (float) fbSize.y, 0.f, -1.f, 1.f);
 
             glBegin(GL_QUADS);
             {
@@ -145,8 +177,9 @@ namespace osc
                     //"../../models/eggtest/eggtest.obj"
                     //"../../models/cornellBoxTeapot/teapotbox.obj"
                     //"../../models/benchmarkModels/Scene_high_tri_2_3.obj" //dragonBall
-                    //"../../models/benchmarkModels/Scene_high_obj_2_2.obj" //waterDrop
-                    "../../models/benchmarkModels/torus.obj" //torus
+                    //"../../models/Scene_high_obj_2_2.obj" //waterDrop
+                    //"../../models/torus.obj" //torus
+                    "../../models/one_light_DSL.obj" //waterDrop
 #else
                     // on linux, common practice is to have ONE level of build dir
                     // (say, <project>/build/)...
@@ -155,8 +188,8 @@ namespace osc
             );
 
             //Camera camera = {vec3f(0.0f, 6.0f, 25.0f), vec3f(0.0f, 3.0f, 0.0f), vec3f(0.0f, 1.0f, 0.0f)}; //dragonBall
-            //Camera camera = {vec3f(0.0f, 3.5f, 25.0f), vec3f(0.0f, 5.0f, 0.0f), vec3f(0.0f, 1.0f, 0.0f)}; //waterDrop
-            Camera camera = {vec3f(0.f, 1.0f, 3.0f), vec3f(0.0f, 0.0f, 0.0f), vec3f(0.0f, 1.0f, 0.0f)}; //torus
+            Camera camera = {vec3f(0.0f, 3.5f, 50.0f), vec3f(0.0f, 5.0f, 0.0f), vec3f(0.0f, 1.0f, 0.0f)}; //waterDrop
+            //Camera camera = {vec3f(0.f, 1.f, 30.0f), vec3f(0.0f, 0.0f, 0.0f), vec3f(0.0f, 1.0f, 0.0f)}; //torus
             //Camera camera = { /*from*/vec3f(0.f, 17.f, 70.f),
             //        /* at */ vec3f(0.f, 17.0f, 65), //model->bounds.center()
             //        /* up */vec3f(0.f, 1.f, 0.f)};

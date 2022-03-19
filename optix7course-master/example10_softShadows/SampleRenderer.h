@@ -58,6 +58,8 @@ namespace osc {
 
     /*! set camera to render with */
     void setCamera(const Camera &camera);
+
+    int getAccumID();
   protected:
     // ------------------------------------------------------------------
     // internal helper functions

@@ -521,7 +521,7 @@ namespace osc
 
         //light
         pgDesc.hitgroup.entryFunctionNameCH = "__closesthit__light";
-        pgDesc.hitgroup.entryFunctionNameAH = "__anyhit__radiance";
+        pgDesc.hitgroup.entryFunctionNameAH = "__anyhit__light";
 
         OPTIX_CHECK(optixProgramGroupCreate(optixContext,
                                             &pgDesc,
@@ -715,7 +715,7 @@ namespace osc
                 = cosFovy * aspect * normalize(cross(launchParams.camera.direction,
                                                      camera.up));
         launchParams.camera.vertical
-                = cosFovy * normalize(cross(launchParams.camera.horizontal,
+                = -cosFovy * normalize(cross(launchParams.camera.horizontal,
                                             launchParams.camera.direction));
 
         launchParams.frame.accumID = 0;
@@ -746,6 +746,11 @@ namespace osc
     {
         colorBuffer.download(h_pixels,
                              launchParams.frame.size.x * launchParams.frame.size.y);
+    }
+
+    int SampleRenderer::getAccumID()
+    {
+        return launchParams.frame.accumID;
     }
 
 } // ::osc

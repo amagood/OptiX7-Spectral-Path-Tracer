@@ -20,7 +20,9 @@ endif (POLICY CMP0048)
 
 project(optix7course VERSION 1.0.1)
 
-cmake_minimum_required(VERSION 2.8)
+cmake_minimum_required(VERSION 3.8)
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--stack,100000000")
+
 if (NOT WIN32)
 # visual studio doesn't like these (not need them):
 set (CMAKE_CXX_FLAGS "--std=c++11")
