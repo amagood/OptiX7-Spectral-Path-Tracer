@@ -494,6 +494,7 @@ namespace osc
         vec3f lastGlassNormal;
         vec3f lastGlassRayDir;
         vec3f lastGlassR;
+        vec3i ch_triangle_index; //only updated when hit glass for now
         int depth;
         bool isEnd;
         bool anyHitLight;
@@ -897,6 +898,7 @@ extern "C" __global__ void __raygen__renderFrame()
         #endif
                 }
                 pixelColor += sampledWavedColor;
+                //pixelColor = vec3f(100000.f, 0, 0);
             }
             else
             {
@@ -1097,6 +1099,7 @@ extern "C" __global__ void __closesthit__glass()
     const vec3i index = sbtData.index[primID];
     const float u = optixGetTriangleBarycentrics().x;
     const float v = optixGetTriangleBarycentrics().y;
+    prd.ch_triangle_index = index;
     // ------------------------------------------------------------------
     // compute normal, using either shading normal (if avail), or
     // geometry normal (fallback)

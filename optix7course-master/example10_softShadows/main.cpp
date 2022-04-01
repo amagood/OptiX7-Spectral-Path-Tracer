@@ -179,7 +179,8 @@ namespace osc
                     //"../../models/benchmarkModels/Scene_high_tri_2_3.obj" //dragonBall
                     //"../../models/Scene_high_obj_2_2.obj" //waterDrop
                     //"../../models/torus.obj" //torus
-                    "../../models/one_light_DSL.obj" //waterDrop
+                    //"../../models/one_light_DSL.obj" //waterDrop
+                    "../../models/prism/80.obj" //prism
 #else
                     // on linux, common practice is to have ONE level of build dir
                     // (say, <project>/build/)...
@@ -188,8 +189,9 @@ namespace osc
             );
 
             //Camera camera = {vec3f(0.0f, 6.0f, 25.0f), vec3f(0.0f, 3.0f, 0.0f), vec3f(0.0f, 1.0f, 0.0f)}; //dragonBall
-            Camera camera = {vec3f(0.0f, 3.5f, 50.0f), vec3f(0.0f, 5.0f, 0.0f), vec3f(0.0f, 1.0f, 0.0f)}; //waterDrop
+            //Camera camera = {vec3f(0.0f, 3.5f, 50.0f), vec3f(0.0f, 5.0f, 0.0f), vec3f(0.0f, 1.0f, 0.0f)}; //waterDrop
             //Camera camera = {vec3f(0.f, 1.f, 30.0f), vec3f(0.0f, 0.0f, 0.0f), vec3f(0.0f, 1.0f, 0.0f)}; //torus
+            Camera camera = {vec3f(59.58f, 13.55f, 4.25f), vec3f(11.22f, 5.08f, -5.366f), vec3f(0.0f, 1.0f, 0.0f)}; //prism
             //Camera camera = { /*from*/vec3f(0.f, 17.f, 70.f),
             //        /* at */ vec3f(0.f, 17.0f, 65), //model->bounds.center()
             //        /* up */vec3f(0.f, 1.f, 0.f)};
