@@ -36,12 +36,18 @@ namespace osc {
     bool                hasTexture;
     cudaTextureObject_t texture;
   };
-  
+
+  struct PPD //per pixel data
+  {
+      int owo;
+  };
+
   struct LaunchParams
   {
     struct {
       uint32_t *colorBuffer;
       vec3f *accumulateBuffer;
+      PPD *ppdBuffer;
       vec2i     size;
       int       accumID { 0 };
     } frame;

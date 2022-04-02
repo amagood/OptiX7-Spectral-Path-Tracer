@@ -21,8 +21,10 @@
 
 #include "LaunchParams.h"
 #include "gdt/random/random.h"
+#include "TriangleData.cuh"
 
 #define SPECTRAL_MODE
+#define PARALLEL_LIGHT
 
 #ifdef SPECTRAL_MODE
 #include "color.cuh"
@@ -31,7 +33,7 @@
 #ifdef SPECTRAL_MODE
 //switches different algorithm for computing spectral wavelength
 //#define VISIBILITY_BIAS_FOR_BOUNDARY_SAMPLING   //if defined -> will be biased
-//#define USE_NAIVE_SPECTRAL
+#define USE_NAIVE_SPECTRAL
 #endif
 
 using namespace osc;
@@ -494,6 +496,7 @@ namespace osc
         vec3f lastGlassNormal;
         vec3f lastGlassRayDir;
         vec3f lastGlassR;
+        vec3i ch_triangle_index; //only updated when hit glass for now
         int depth;
         bool isEnd;
         bool anyHitLight;
@@ -869,9 +872,8 @@ extern "C" __global__ void __raygen__renderFrame()
         {
 #ifdef SPECTRAL_MODE
     #ifndef USE_NAIVE_SPECTRAL
-            if(my_StringCompare(prd.pathREGEX, "DSL"))
+            if(my_StringCompare(prd.pathREGEX, "DSSL"))
             {
-
                 int maxWavelength = 780, minWavelength = 380;
                 float validSampleCount = 1.f;
 
@@ -897,6 +899,7 @@ extern "C" __global__ void __raygen__renderFrame()
         #endif
                 }
                 pixelColor += sampledWavedColor;
+                //pixelColor = vec3f(100000.f, 0, 0);
             }
             else
             {
@@ -950,77 +953,21 @@ extern "C" __global__ void __closesthit__radiance()  //diffuse
             = *(const TriangleMeshSBTData *) optixGetSbtDataPointer();
     PRD &prd = *getPRD<PRD>();
     prd.depth++;
-    // ------------------------------------------------------------------
-    // gather some basic hit information
-    // ------------------------------------------------------------------
-    const int primID = optixGetPrimitiveIndex();
-    const vec3i index = sbtData.index[primID];
-    const float u = optixGetTriangleBarycentrics().x;
-    const float v = optixGetTriangleBarycentrics().y;
 
-    // ------------------------------------------------------------------
-    // compute normal, using either shading normal (if avail), or
-    // geometry normal (fallback)
-    // ------------------------------------------------------------------
-    const vec3f &A = sbtData.vertex[index.x];
-    const vec3f &B = sbtData.vertex[index.y];
-    const vec3f &C = sbtData.vertex[index.z];
-    vec3f Ng = cross(B - A, C - A);
-    vec3f Ns = (sbtData.normal)
-               ? ((1.f - u - v) * sbtData.normal[index.x]
-                  + u * sbtData.normal[index.y]
-                  + v * sbtData.normal[index.z])
-               : Ng;
-
-    // ------------------------------------------------------------------
-    // face-forward and normalize normals
-    // ------------------------------------------------------------------
-    const vec3f rayDir = optixGetWorldRayDirection();
-
-    if (dot(rayDir, Ng) > 0.f) Ng = -Ng;
-    Ng = normalize(Ng);
-
-    if (dot(Ng, Ns) < 0.f)
-        Ns -= 2.f * dot(Ng, Ns) * Ng;
-    Ns = normalize(Ns);
-
-    // ------------------------------------------------------------------
-    // compute diffuse material color, including diffuse texture, if
-    // available
-    // ------------------------------------------------------------------
-    vec3f diffuseColor = sbtData.color;
-    if (sbtData.hasTexture && sbtData.texcoord)
-    {
-        const vec2f tc
-                = (1.f - u - v) * sbtData.texcoord[index.x]
-                  + u * sbtData.texcoord[index.y]
-                  + v * sbtData.texcoord[index.z];
-
-        vec4f fromTexture = tex2D<float4>(sbtData.texture, tc.x, tc.y);
-        diffuseColor *= (vec3f) fromTexture;
-    }
+    const TriangleData triangleData(sbtData);
 
     // start with some ambient term
     //vec3f pixelColor = (0.1f + 0.2f * fabsf(dot(Ns, rayDir))) * diffuseColor;
-    vec3f pixelColor = diffuseColor;
-
-    // ------------------------------------------------------------------
-    // compute shadow
-    // ------------------------------------------------------------------
-    const vec3f surfPos
-            = (1.f - u - v) * sbtData.vertex[index.x]
-              + u * sbtData.vertex[index.y]
-              + v * sbtData.vertex[index.z];
-
+    vec3f pixelColor = triangleData.diffuseColor;
 
     const float z1 = prd.random();
     const float z2 = prd.random();
     vec3f w_in = normalize(vec3f(1, 1, 1));
     cosine_sample_hemisphere( z1, z2, w_in );
-    Onb onb(Ns);
+    Onb onb(triangleData.Ns);
     onb.inverse_transform( w_in );
 
-    prd.nextRayOrigin = surfPos + 1e-3f * Ns;
+    prd.nextRayOrigin = triangleData.surfPos + 1e-3f * triangleData.Ns;
     prd.nextRayDirection = w_in;
     prd.pixelColor *= pixelColor;
     my_strcat(prd.pathREGEX, "D");
@@ -1032,51 +979,11 @@ extern "C" __global__ void __closesthit__metal()
             = *(const TriangleMeshSBTData *) optixGetSbtDataPointer();
     PRD &prd = *getPRD<PRD>();
 
+    const TriangleData triangleData(sbtData);
 
-    // ------------------------------------------------------------------
-    // gather some basic hit information
-    // ------------------------------------------------------------------
-    const int primID = optixGetPrimitiveIndex();
-    const vec3i index = sbtData.index[primID];
-    const float u = optixGetTriangleBarycentrics().x;
-    const float v = optixGetTriangleBarycentrics().y;
+    vec3f reflectDirection = reflect(triangleData.rayDir, triangleData.Ns);
 
-    // ------------------------------------------------------------------
-    // compute normal, using either shading normal (if avail), or
-    // geometry normal (fallback)
-    // ------------------------------------------------------------------
-    const vec3f &A = sbtData.vertex[index.x];
-    const vec3f &B = sbtData.vertex[index.y];
-    const vec3f &C = sbtData.vertex[index.z];
-    vec3f frontFacedNormal = cross(B - A, C - A);
-
-    vec3f Ns = (sbtData.normal)
-               ? ((1.f - u - v) * sbtData.normal[index.x]
-                  + u * sbtData.normal[index.y]
-                  + v * sbtData.normal[index.z])
-               : frontFacedNormal;
-
-    // ------------------------------------------------------------------
-    // face-forward and normalize normals
-    // ------------------------------------------------------------------
-    const vec3f rayDir = optixGetWorldRayDirection();
-
-    if (dot(rayDir, frontFacedNormal) > 0.f) frontFacedNormal = -frontFacedNormal;
-    frontFacedNormal = normalize(frontFacedNormal);
-
-    if (dot(frontFacedNormal, Ns) < 0.f)
-        Ns -= 2.f * dot(frontFacedNormal, Ns) * frontFacedNormal;
-    Ns = normalize(Ns);
-
-    vec3f reflectDirection = reflect(rayDir, frontFacedNormal);
-
-    const vec3f hitpoint =
-            (1.f - u - v) * sbtData.vertex[index.x]
-            + u * sbtData.vertex[index.y]
-            + v * sbtData.vertex[index.z];
-
-
-    prd.nextRayOrigin = hitpoint + 1e-3f * frontFacedNormal;
+    prd.nextRayOrigin = triangleData.surfPos + 1e-3f * triangleData.Ns;
     prd.nextRayDirection = reflectDirection;
     //prd.pixelColor *= sbtData.color;
     //prd.pixelColor = vec3f(1.f, 0.f, 0.f);
@@ -1090,40 +997,15 @@ extern "C" __global__ void __closesthit__glass()
             = *(const TriangleMeshSBTData *) optixGetSbtDataPointer();
     PRD &prd = *getPRD<PRD>();
 
-    // ------------------------------------------------------------------
-    // gather some basic hit information
-    // ------------------------------------------------------------------
-    const int primID = optixGetPrimitiveIndex();
-    const vec3i index = sbtData.index[primID];
-    const float u = optixGetTriangleBarycentrics().x;
-    const float v = optixGetTriangleBarycentrics().y;
-    // ------------------------------------------------------------------
-    // compute normal, using either shading normal (if avail), or
-    // geometry normal (fallback)
-    // ------------------------------------------------------------------
-    const vec3f &A = sbtData.vertex[index.x];
-    const vec3f &B = sbtData.vertex[index.y];
-    const vec3f &C = sbtData.vertex[index.z];
-    vec3f frontFacedNormal = normalize(-cross(B - A, C - A));
+    const TriangleData triangleData(sbtData);
 
-    vec3f Ns = (sbtData.normal)
-               ? ((1.f - u - v) * sbtData.normal[index.x]
-                  + u * sbtData.normal[index.y]
-                  + v * sbtData.normal[index.z])
-               : frontFacedNormal;
-
-    //if (dot(frontFacedNormal, Ns) < 0.f)
-    //    Ns -= 2.f * dot(frontFacedNormal, Ns) * frontFacedNormal;
-    Ns = normalize(Ns);
     // ------------------------------------------------------------------
     // face-forward and normalize normals
     // ------------------------------------------------------------------
-    vec3f rayDir = optixGetWorldRayDirection();
-    rayDir = normalize(rayDir);
-    prd.lastGlassRayDir = rayDir;
+    prd.lastGlassRayDir = triangleData.rayDir;
 
     //if (dot(rayDir, frontFacedNormal) > 0.f) frontFacedNormal = -frontFacedNormal;
-    frontFacedNormal = Ns;
+    vec3f frontFacedNormal = triangleData.rawNormal;
     prd.lastGlassNormal = frontFacedNormal;
 
 #ifdef SPECTRAL_MODE
@@ -1133,7 +1015,7 @@ extern "C" __global__ void __closesthit__glass()
     float wavelengthIor = sbtData.refractionIndex;
 #endif
 
-    float cos_theta_i = dot(-rayDir, frontFacedNormal);
+    float cos_theta_i = dot(-triangleData.rayDir, frontFacedNormal);
     float eta;
     float t_hit = optixGetRayTmax();
     //vec3f extinction(-1 * log(1.f), -1 * log(1.f), -1 * log(1.f));
@@ -1156,14 +1038,9 @@ extern "C" __global__ void __closesthit__glass()
     }
 
     vec3f w_t;
-    const bool tir = !refract(w_t, rayDir, frontFacedNormal, eta);
+    const bool tir = !refract(w_t, triangleData.rayDir, frontFacedNormal, eta);
     const float cos_theta_t = -dot(frontFacedNormal, w_t);
     const float R = tir ? 1.f : fresnel(cos_theta_i, cos_theta_t, eta);
-
-    const vec3f hitpoint =
-            (1.f - u - v) * sbtData.vertex[index.x]
-            + u * sbtData.vertex[index.y]
-            + v * sbtData.vertex[index.z];
 
     prd.lastGlassR = R;
 
@@ -1171,7 +1048,7 @@ extern "C" __global__ void __closesthit__glass()
     if(z <= R)
     {
         //Reflect
-        const vec3f w_in = reflect(normalize(rayDir), normalize(frontFacedNormal));
+        const vec3f w_in = reflect(normalize(triangleData.rayDir), normalize(frontFacedNormal));
         prd.nextRayDirection = w_in;
         my_strcat(prd.pathREGEX, "R");
     }
@@ -1182,7 +1059,7 @@ extern "C" __global__ void __closesthit__glass()
         prd.nextRayDirection = w_in;
         my_strcat(prd.pathREGEX, "S");
     }
-    prd.nextRayOrigin = hitpoint;
+    prd.nextRayOrigin = triangleData.surfPos;
     prd.pixelColor *= transmittance;
     prd.depth++;
 }
@@ -1192,10 +1069,32 @@ extern "C" __global__ void __closesthit__light()
     const TriangleMeshSBTData &sbtData
             = *(const TriangleMeshSBTData *) optixGetSbtDataPointer();
     PRD &prd = *getPRD<PRD>();
+
+    const TriangleData triangleData(sbtData);
+
+#ifndef PARALLEL_LIGHT //area light
     prd.pixelColor *= sbtData.emissionColor;
     prd.depth++;
     prd.isEnd = true;
     my_strcat(prd.pathREGEX, "L");
+#else //parallel light
+
+    const vec3f lightSourceDir = -triangleData.Ns;  //the normal of the light plate
+
+    if(dot(triangleData.rayDir, lightSourceDir) > 0.99f)  //not perfect parallel is ok
+    {
+        prd.pixelColor *= sbtData.emissionColor * 10.f;
+        prd.depth++;
+        prd.isEnd = true;
+        my_strcat(prd.pathREGEX, "L");
+    }
+    else //not parallel is considered miss
+    {
+        prd.isEnd = true;
+        prd.pixelColor *= missColor;
+    }
+
+#endif
 }
 
 extern "C" __global__ void __anyhit__light()

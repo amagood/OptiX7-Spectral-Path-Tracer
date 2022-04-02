@@ -137,6 +137,7 @@ namespace osc {
 
     CUDABuffer colorBuffer;
     CUDABuffer accumulateBuffer;
+    CUDABuffer ppdBuffer;
 
     /*! the camera we are to render with. */
     Camera lastSetCamera;

@@ -730,11 +730,14 @@ namespace osc
         // resize our cuda frame buffer
         colorBuffer.resize(newSize.x * newSize.y * sizeof(uint32_t));
         accumulateBuffer.resize(newSize.x * newSize.y * sizeof(vec3f));
+        ppdBuffer.resize(newSize.x * newSize.y * sizeof(PPD));
+
         // update the launch parameters that we'll pass to the optix
         // launch:
         launchParams.frame.size = newSize;
         launchParams.frame.colorBuffer = (uint32_t *) colorBuffer.d_pointer();
         launchParams.frame.accumulateBuffer = (vec3f *) accumulateBuffer.d_pointer();
+        launchParams.frame.ppdBuffer = (PPD *) ppdBuffer.d_pointer();
         launchParams.frame.accumID = 0;
 
         // and re-set the camera, since aspect may have changed
