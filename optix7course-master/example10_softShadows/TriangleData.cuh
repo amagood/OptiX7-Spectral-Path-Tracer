@@ -46,7 +46,7 @@ struct TriangleData
         B = sbtData.vertex[index.y];
         C = sbtData.vertex[index.z];
 
-        Ng = cross(B - A, C - A);
+        Ng = normalize(-cross(B - A, C - A));
         Ns = (sbtData.normal)
                   ? ((1.f - u - v) * sbtData.normal[index.x]
                      + u * sbtData.normal[index.y]
@@ -57,6 +57,7 @@ struct TriangleData
         // face-forward and normalize normals
         // ------------------------------------------------------------------
         rayDir = optixGetWorldRayDirection();
+        rayDir = normalize(rayDir);
 
         rawNormal = Ns;
 

@@ -26,7 +26,7 @@ include_directories("../common/3rdParty")
 link_directories("../common/lib")
 
 
-cuda_compile_and_embed(embedded_ptx_code devicePrograms.cu color.cuh TriangleData.cuh)
+cuda_compile_and_embed(embedded_ptx_code devicePrograms.cu color.cuh TriangleData.cuh myVector.cuh)
 
 add_executable(ex10_softShadows
         ${embedded_ptx_code}

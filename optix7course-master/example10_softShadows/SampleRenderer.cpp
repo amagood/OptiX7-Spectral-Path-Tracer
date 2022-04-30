@@ -751,6 +751,13 @@ namespace osc
                              launchParams.frame.size.x * launchParams.frame.size.y);
     }
 
+    void SampleRenderer::downloadPPD(PPD *outPPD, int &outW, int &outH)
+    {
+        ppdBuffer.download(outPPD, launchParams.frame.size.x * launchParams.frame.size.y);
+        outW = launchParams.frame.size.x;
+        outH = launchParams.frame.size.y;
+    }
+
     int SampleRenderer::getAccumID()
     {
         return launchParams.frame.accumID;

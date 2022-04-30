@@ -56,6 +56,8 @@ namespace osc {
     /*! download the rendered color buffer */
     void downloadPixels(uint32_t h_pixels[]);
 
+    void downloadPPD(PPD *outPPD, int &outW, int &outH);
+
     /*! set camera to render with */
     void setCamera(const Camera &camera);
 

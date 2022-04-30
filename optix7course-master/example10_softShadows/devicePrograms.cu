@@ -33,13 +33,13 @@
 #ifdef SPECTRAL_MODE
 //switches different algorithm for computing spectral wavelength
 //#define VISIBILITY_BIAS_FOR_BOUNDARY_SAMPLING   //if defined -> will be biased
-#define USE_NAIVE_SPECTRAL
+//#define USE_NAIVE_SPECTRAL
 #endif
 
 using namespace osc;
 
 #define NUM_LIGHT_SAMPLES 1
-#define NUM_PIXEL_SAMPLES 16
+#define NUM_PIXEL_SAMPLES 32
 constexpr int RRBeginDepth = 4;
 #define maxDepth 7
 
@@ -473,6 +473,16 @@ __device__ float getWhiteWavelengthDistribution(int lambda)
         return 0.f;
     return white5506K[lambda - 360];
 }
+
+__device__ const vec3f getWavelengthWhiteColor()
+{
+    vec3f sumOfSpectral(0.f, 0.f, 0.f);
+    for(int i = 380; i <= 780; i++)
+    {
+        sumOfSpectral += getWhiteWavelengthDistribution(i) * XYZ2RGB(lambda2xyz[computeLambda2xyzIndex(i)]);
+    }
+    return sumOfSpectral;
+}
 #endif
 
 namespace osc
@@ -493,15 +503,15 @@ namespace osc
         vec3f pixelColor;
         vec3f nextRayOrigin;
         vec3f nextRayDirection;
-        vec3f lastGlassNormal;
-        vec3f lastGlassRayDir;
-        vec3f lastGlassR;
         vec3i ch_triangle_index; //only updated when hit glass for now
         int depth;
-        bool isEnd;
-        bool anyHitLight;
         int lambda;
         char pathREGEX[maxDepth] = {};
+
+        bool isEnd;
+        bool anyHitLight;
+        bool isBinarySearchRay;
+        bool binarySearchIsSuccess;
     };
 
     static __forceinline__ __device__
@@ -657,13 +667,25 @@ extern "C" __global__ void __miss__shadow()
     prd = vec3f(0.f);
 }
 
-__device__ float get_fresnel_R(int wavelength, const PRD &prd, vec3f &w_t)
+#ifdef SPECTRAL_MODE
+__device__ float get_fresnel_R(int wavelength, vec3f &w_t)
 {
+    // compute a test pattern based on pixel ID
+    const int ix = optixGetLaunchIndex().x;
+    const int iy = optixGetLaunchIndex().y;
+    const uint32_t fbIndex = ix + iy * optixLaunchParams.frame.size.x; //frame buffer index
+
+    PPD &nowPPD = optixLaunchParams.frame.ppdBuffer[fbIndex]; //get the per pixel data of this pixel
+
+    vec3f rayDir = nowPPD.lastRayDirection;
+    vec3f frontFacedNormal = nowPPD.lastGlassNormal;
+
+    //cauchyB = sbtData.refractionIndex;
     float wavelengthIor = cauchyRefractionIndex(wavelength / 1000.f, cauchyB, cauchyC);
-    vec3f frontFacedNormal = prd.lastGlassNormal;
-    vec3f rayDir = prd.lastGlassRayDir;
+
     float cos_theta_i = dot(-rayDir, frontFacedNormal);
     float eta;
+
     if(cos_theta_i > 0.f)
     {
         // Ray is entering
@@ -679,16 +701,23 @@ __device__ float get_fresnel_R(int wavelength, const PRD &prd, vec3f &w_t)
         frontFacedNormal = -frontFacedNormal;
     }
 
+    //vec3f w_t;
     const bool tir = !refract(w_t, rayDir, frontFacedNormal, eta);
     const float cos_theta_t = -dot(frontFacedNormal, w_t);
-    const float R = tir ? 1.f : fresnel(cos_theta_i, cos_theta_t, eta);
+    float R = tir ? 1.f : fresnel(cos_theta_i, cos_theta_t, eta);
+    //float R = fresnel(cos_theta_i, cos_theta_t, eta);
+
     return R;
 }
 
-__device__ bool init = false;
-
-__device__ int binarySearchWavelengthBoundary(int ix, int iy, int accumID, const PRD &prd, vec3f rayOrigin, const LaunchParams optixLaunchParams, bool findMinWavelengthBoundary) //find max WavelengthBoundary if findMinWavelengthBoundary == false
+__device__ int binarySearchWavelengthBoundary(int accumID, const PRD &prd, const LaunchParams optixLaunchParams, bool findMinWavelengthBoundary) //find max WavelengthBoundary if findMinWavelengthBoundary == false
 {
+    const int ix = optixGetLaunchIndex().x;
+    const int iy = optixGetLaunchIndex().y;
+    const uint32_t fbIndex = ix + iy * optixLaunchParams.frame.size.x; //frame buffer index
+    PPD &nowPPD = optixLaunchParams.frame.ppdBuffer[fbIndex]; //get the per pixel data of this pixel
+    //vec3f ori = nowPPD.lastRayOrigin;
+    //printf("%f %f %f,      %f %f %f\n", ori.x, ori.y, ori.z, rayOrigin.x, rayOrigin.y, rayOrigin.z);
     int searchMin = 380, searchMax = prd.lambda;
     if(!findMinWavelengthBoundary)
     {
@@ -708,17 +737,19 @@ __device__ int binarySearchWavelengthBoundary(int ix, int iy, int accumID, const
     while(true)
     {
         vec3f w_t;
-        float R = get_fresnel_R(currentSampledWavelength, prd, w_t);
+        float R = get_fresnel_R(currentSampledWavelength, w_t);
+        //R = 0.0;
+        //printf("%f\n",R);
 
         //ray
-        if(1 - R <= 0) //full reflect
-        {
-            if(findMinWavelengthBoundary)
-                searchMin = currentSampledWavelength;
-            else
-                searchMax = currentSampledWavelength;
-            continue;
-        }
+        //if(1 - R <= 0) //full reflect
+        //{
+        //    if(findMinWavelengthBoundary)
+        //        searchMin = currentSampledWavelength;
+        //    else
+        //        searchMax = currentSampledWavelength;
+        //    continue;
+        //}
 
         PRD wavelengthPrd;
         uint32_t u2, u3;
@@ -726,32 +757,69 @@ __device__ int binarySearchWavelengthBoundary(int ix, int iy, int accumID, const
         wavelengthPrd.random.init(ix + accumID * optixLaunchParams.frame.size.x,
                                   iy + accumID * optixLaunchParams.frame.size.y);
         wavelengthPrd.depth = 0;
+        wavelengthPrd.lambda = currentSampledWavelength;
         wavelengthPrd.anyHitLight = false;
-        wavelengthPrd.nextRayDirection = vec3f(0.f);
-        wavelengthPrd.nextRayOrigin = vec3f(0.f);
         wavelengthPrd.pixelColor = vec3f(1.f);
+        wavelengthPrd.isEnd = false;
+        wavelengthPrd.isBinarySearchRay = true;
         // the values we store the PRD pointer in:
         const vec3f w_in = normalize(w_t);
-        optixTrace(optixLaunchParams.traversable,
-                   rayOrigin,
-                   w_in,
-                   0.0001f,    // tmin
-                   1e20f,  // tmax
-                   0.0f,   // rayTime
-                   OptixVisibilityMask(255),
-                   OPTIX_RAY_FLAG_NONE,//OPTIX_RAY_FLAG_NONE,
-                   RADIANCE_RAY_TYPE,            // SBT offset
-                   RAY_TYPE_COUNT,               // SBT stride
-                   RADIANCE_RAY_TYPE,            // missSBTIndex
-                   u2, u3);
-        if(wavelengthPrd.anyHitLight == findMinWavelengthBoundary)
+        wavelengthPrd.nextRayDirection = w_in;
+        //printf("%f %f %f\n",w_in.x,w_in.y,w_in.z);
+        //wavelengthPrd.nextRayDirection = vec3f(0.f,1.f,0.f);
+        wavelengthPrd.nextRayOrigin = nowPPD.lastRayOrigin;
+        wavelengthPrd.binarySearchIsSuccess = false;
+
+        const int maxDepthForBS = 1; //
+        while(wavelengthPrd.depth <= maxDepthForBS)
         {
-            searchMax = currentSampledWavelength;  //binary search update
+            wavelengthPrd.binarySearchIsSuccess = false;
+            wavelengthPrd.anyHitLight = false;
+            //if(I != wavelengthPrd.depth) printf("I am shit at c++ %d %d %s\n",I,wavelengthPrd.depth,wavelengthPrd.pathREGEX);
+            optixTrace(optixLaunchParams.traversable,
+                       wavelengthPrd.nextRayOrigin,
+                       wavelengthPrd.nextRayDirection,
+                       0.0001f,    // tmin
+                       1e20f,  // tmax
+                       0.0f,   // rayTime
+                       OptixVisibilityMask(255),
+                       OPTIX_RAY_FLAG_NONE,//OPTIX_RAY_FLAG_NONE,
+                       RADIANCE_RAY_TYPE,            // SBT offset
+                       RAY_TYPE_COUNT,               // SBT stride
+                       RADIANCE_RAY_TYPE,            // missSBTIndex
+                       u2, u3);
+
+            //printf("%d %f %f %f\n",wavelengthPrd.depth,wavelengthPrd.nextRayDirection.x,wavelengthPrd.nextRayDirection.y,wavelengthPrd.nextRayDirection.z);
+            if(!wavelengthPrd.binarySearchIsSuccess)
+                break;
+            if(wavelengthPrd.isEnd) break;
+        }
+        //if(wavelengthPrd.anyHitLight && wavelengthPrd.binarySearchIsSuccess) printf("hi\n");
+
+        if(findMinWavelengthBoundary)
+        {
+            if ((wavelengthPrd.anyHitLight && wavelengthPrd.binarySearchIsSuccess))
+            {
+                searchMax = currentSampledWavelength;  //binary search update
+            }
+            else
+            {
+                searchMin = currentSampledWavelength;  //binary search update
+            }
         }
         else
         {
-            searchMin = currentSampledWavelength;  //binary search update
+            if ((wavelengthPrd.anyHitLight && wavelengthPrd.binarySearchIsSuccess))
+            {
+                searchMin = currentSampledWavelength;  //binary search update
+            }
+            else
+            {
+                searchMax = currentSampledWavelength;  //binary search update
+            }
         }
+
+        //printf("%d %d\n", searchMax, searchMin);
 
         //found boundary
         if(searchMax - searchMin <= 1)
@@ -765,17 +833,23 @@ __device__ int binarySearchWavelengthBoundary(int ix, int iy, int accumID, const
         currentSampledWavelength = (searchMax + searchMin) / 2;
     }
 }
+#endif
 
+
+__device__ bool init = false;
 //------------------------------------------------------------------------------
 // ray gen program - the actual rendering happens in here
 //------------------------------------------------------------------------------
 extern "C" __global__ void __raygen__renderFrame()
 {
-    //printf("%d\n", __cplusplus);
-
     // compute a test pattern based on pixel ID
     const int ix = optixGetLaunchIndex().x;
     const int iy = optixGetLaunchIndex().y;
+    const uint32_t fbIndex = ix + iy * optixLaunchParams.frame.size.x; //frame buffer index
+
+    PPD &nowPPD = optixLaunchParams.frame.ppdBuffer[fbIndex]; //get the per pixel data of this pixel
+
+
     const int accumID = optixLaunchParams.frame.accumID;
     const auto &camera = optixLaunchParams.camera;
 
@@ -783,6 +857,8 @@ extern "C" __global__ void __raygen__renderFrame()
     {
         init = true;
         missColor = vec3f(0.f);
+
+        //printf("%d\n", nowPPD.glassTriangleHitList.getcapacity());
 
 #ifdef SPECTRAL_MODE
         initLambda2xyzArray();
@@ -805,9 +881,14 @@ extern "C" __global__ void __raygen__renderFrame()
         //clear prd
         prd.isEnd = false;
         prd.depth = 0;
+        prd.isBinarySearchRay = false;
         prd.nextRayDirection = vec3f(0.f);
         prd.nextRayOrigin = vec3f(0.f);
         my_strcpy(prd.pathREGEX, "");
+
+        //clear the list that records the triangle of glass that the PATH has hit
+        nowPPD.currentOfGlassTriangleHitList = 0;
+        nowPPD.firstHitGlass = false;
 
         // normalized screen plane position, in [0,1]^2
         const vec2f screen(vec2f(ix + prd.random(), iy + prd.random())
@@ -820,7 +901,6 @@ extern "C" __global__ void __raygen__renderFrame()
         vec3f rayOrigin = camera.position;
 
 #ifdef SPECTRAL_MODE
-        vec3f previousRayDir = rayDir;
 
         prd.lambda = prd.random() * 400 + 380;
         //prd.pixelColor = XYZ2RGB(lambda2xyz[computeLambda2xyzIndex(prd.lambda)]); //* vec3f(1.0f/0.300985f, 1.0f / 0.274355f, 1.0f / 0.216741f);
@@ -828,7 +908,6 @@ extern "C" __global__ void __raygen__renderFrame()
 #else
         prd.pixelColor = vec3f(1.f);
 #endif
-
 
         for (int i = 0; !prd.isEnd; i++)
         {
@@ -845,8 +924,6 @@ extern "C" __global__ void __raygen__renderFrame()
                        RADIANCE_RAY_TYPE,            // missSBTIndex
                        u0, u1);
 
-
-
             if(prd.depth >= RRBeginDepth)
             {
                 float p = length(prd.pixelColor);
@@ -861,9 +938,6 @@ extern "C" __global__ void __raygen__renderFrame()
             if(prd.isEnd)
                 break;
 
-#ifdef SPECTRAL_MODE
-            previousRayDir = rayDir;
-#endif
             rayOrigin = prd.nextRayOrigin;
             rayDir = prd.nextRayDirection;
         }
@@ -871,52 +945,67 @@ extern "C" __global__ void __raygen__renderFrame()
         if(prd.isEnd)
         {
 #ifdef SPECTRAL_MODE
-    #ifndef USE_NAIVE_SPECTRAL
+#ifndef USE_NAIVE_SPECTRAL
             if(my_StringCompare(prd.pathREGEX, "DSSL"))
             {
                 int maxWavelength = 780, minWavelength = 380;
                 float validSampleCount = 1.f;
 
-                minWavelength = binarySearchWavelengthBoundary(ix, iy, accumID, prd, rayOrigin, optixLaunchParams, true); //find Min wavelength using binary search
-                maxWavelength = binarySearchWavelengthBoundary(ix, iy, accumID, prd, rayOrigin, optixLaunchParams, false); //find Max wavelength using binary search
-
-                //printf("%d %d %d\n", minWavelength, maxWavelength, prd.lambda);
+                minWavelength = binarySearchWavelengthBoundary(accumID, prd, optixLaunchParams, true); //find Min wavelength using binary search
+                maxWavelength = binarySearchWavelengthBoundary(accumID, prd, optixLaunchParams, false); //find Max wavelength using binary search
+                //if(minWavelength != maxWavelength) printf("%d %d %d\n", minWavelength, maxWavelength, prd.lambda);
 
                 vec3f sampledWavedColor = vec3f(0.f);
                 int boundaryLength = (maxWavelength - minWavelength + 1);
 
-                int nOfForLoop = maxWavelength - minWavelength + 1;
-                for(int i = minWavelength; i <= maxWavelength; i++)
+                if(boundaryLength == 401)
                 {
-                    vec3f w_t;
-                    float R = get_fresnel_R(i, prd, w_t);
-        #ifndef VISIBILITY_BIAS_FOR_BOUNDARY_SAMPLING
-                    //bias -> don't do visibility test
-                    vec3f colorOfThisSample = prd.pixelColor * XYZ2RGB(lambda2xyz[computeLambda2xyzIndex(i)]) * getWhiteWavelengthDistribution(i) * (1.f - R) / (1.f-prd.lastGlassR);
-                    vec3f uniformSampleResultOnSpectralBoundary = (colorOfThisSample * boundaryLength) / nOfForLoop;
-                    float importantSamplingTerm = (401.f / (float)boundaryLength);
-                    sampledWavedColor += colorOfThisSample * 401.f / nOfForLoop;//uniformSampleResultOnSpectralBoundary / importantSamplingTerm;
-        #endif
+                    //getWavelengthWhiteColor() == vec3f(1.31333, 1.27419, 0.917824)
+                    pixelColor += prd.pixelColor * vec3f(1.31333, 1.27419, 0.917824);
+                    //pixelColor += prd.pixelColor * getWavelengthWhiteColor();
                 }
+                else
+                {
+                    int nOfForLoop = maxWavelength - minWavelength + 1;
+                    for(int i = minWavelength; i <= maxWavelength; i++)
+                    {
+                        vec3f w_t;
+                        float R = get_fresnel_R(i, w_t);
+                        #ifndef VISIBILITY_BIAS_FOR_BOUNDARY_SAMPLING
+                            //bias -> don't do visibility test
+                            vec3f colorOfThisSample = prd.pixelColor * XYZ2RGB(lambda2xyz[computeLambda2xyzIndex(i)]) * getWhiteWavelengthDistribution(i) * (1.f - R) * (1.f - R) / ((1.f-nowPPD.lastGlassR)*(1.f-nowPPD.lastGlassR));
+                            vec3f uniformSampleResultOnSpectralBoundary = (colorOfThisSample * boundaryLength) / nOfForLoop;
+                            float importantSamplingTerm = (401.f / (float)boundaryLength);
+                            sampledWavedColor += colorOfThisSample * 401.f / nOfForLoop;//uniformSampleResultOnSpectralBoundary / importantSamplingTerm;
+                        #endif
+                    }
+                }
+
+
                 pixelColor += sampledWavedColor;
                 //pixelColor = vec3f(100000.f, 0, 0);
+            }
+            else if(my_strstr(prd.pathREGEX, "S") == nullptr) // non S path
+            {
+                //pixelColor = vec3f(0.f, 0.f, 1e6);
+                pixelColor += prd.pixelColor * vec3f(1.31333, 1.27419, 0.917824);
             }
             else
             {
                 pixelColor += prd.pixelColor * getWhiteWavelengthDistribution(prd.lambda) * 401.f * XYZ2RGB(lambda2xyz[computeLambda2xyzIndex(prd.lambda)]);
             }
-    #else
+#else
             pixelColor += prd.pixelColor * getWhiteWavelengthDistribution(prd.lambda) * 401.f * XYZ2RGB(lambda2xyz[computeLambda2xyzIndex(prd.lambda)]);
-    #endif
+#endif
 #else
             pixelColor += prd.pixelColor;
 #endif
         }
 
     }
+
     //pixelColor *= vec3f(1.0f/0.300985f, 1.0f / 0.274355f, 1.0f / 0.216741f);  //rgb color space normalize
     // and write to frame buffer ...
-    const uint32_t fbIndex = ix + iy * optixLaunchParams.frame.size.x;
     if (accumID == 0)
     {
         const int r = int(255.99f * min(pixelColor.x / numPixelSamples, 1.f));
@@ -993,20 +1082,40 @@ extern "C" __global__ void __closesthit__metal()
 
 extern "C" __global__ void __closesthit__glass()
 {
+    const int ix = optixGetLaunchIndex().x;
+    const int iy = optixGetLaunchIndex().y;
+    const uint32_t fbIndex = ix + iy * optixLaunchParams.frame.size.x; //frame buffer index
+
+    PPD &nowPPD = optixLaunchParams.frame.ppdBuffer[fbIndex]; //get the per pixel data of this pixel
+
     const TriangleMeshSBTData &sbtData
             = *(const TriangleMeshSBTData *) optixGetSbtDataPointer();
     PRD &prd = *getPRD<PRD>();
 
     const TriangleData triangleData(sbtData);
 
+    //record this triangle primitive ID to the list
+    if(!prd.isBinarySearchRay)
+    {
+        nowPPD.glassTriangleHitList[nowPPD.currentOfGlassTriangleHitList] = triangleData.primID;
+        nowPPD.currentOfGlassTriangleHitList++;
+    }
+    else
+    {
+        prd.binarySearchIsSuccess = (nowPPD.glassTriangleHitList[prd.depth+1] == triangleData.primID);
+    }
+
     // ------------------------------------------------------------------
     // face-forward and normalize normals
     // ------------------------------------------------------------------
-    prd.lastGlassRayDir = triangleData.rayDir;
+    if(!nowPPD.firstHitGlass)
+        nowPPD.lastRayDirection = triangleData.rayDir;
+
 
     //if (dot(rayDir, frontFacedNormal) > 0.f) frontFacedNormal = -frontFacedNormal;
     vec3f frontFacedNormal = triangleData.rawNormal;
-    prd.lastGlassNormal = frontFacedNormal;
+    if(!nowPPD.firstHitGlass)
+        nowPPD.lastGlassNormal = frontFacedNormal;
 
 #ifdef SPECTRAL_MODE
     cauchyB = sbtData.refractionIndex;
@@ -1040,9 +1149,12 @@ extern "C" __global__ void __closesthit__glass()
     vec3f w_t;
     const bool tir = !refract(w_t, triangleData.rayDir, frontFacedNormal, eta);
     const float cos_theta_t = -dot(frontFacedNormal, w_t);
-    const float R = tir ? 1.f : fresnel(cos_theta_i, cos_theta_t, eta);
+    float R = tir ? 1.f : fresnel(cos_theta_i, cos_theta_t, eta);
+    if(prd.isBinarySearchRay)
+        R = 0.f;
 
-    prd.lastGlassR = R;
+    if(!nowPPD.firstHitGlass)
+        nowPPD.lastGlassR = R;
 
     const float z = prd.random();
     if(z <= R)
@@ -1060,6 +1172,11 @@ extern "C" __global__ void __closesthit__glass()
         my_strcat(prd.pathREGEX, "S");
     }
     prd.nextRayOrigin = triangleData.surfPos;
+
+    if(!nowPPD.firstHitGlass)
+        nowPPD.lastRayOrigin = prd.nextRayOrigin;
+    nowPPD.firstHitGlass = true;
+
     prd.pixelColor *= transmittance;
     prd.depth++;
 }
@@ -1071,6 +1188,7 @@ extern "C" __global__ void __closesthit__light()
     PRD &prd = *getPRD<PRD>();
 
     const TriangleData triangleData(sbtData);
+    prd.binarySearchIsSuccess = true;
 
 #ifndef PARALLEL_LIGHT //area light
     prd.pixelColor *= sbtData.emissionColor;
@@ -1091,6 +1209,7 @@ extern "C" __global__ void __closesthit__light()
     else //not parallel is considered miss
     {
         prd.isEnd = true;
+        prd.depth++;
         prd.pixelColor *= missColor;
     }
 
@@ -1103,7 +1222,15 @@ extern "C" __global__ void __anyhit__light()
             = *(const TriangleMeshSBTData *) optixGetSbtDataPointer();
     PRD &prd = *getPRD<PRD>();
 
+    const TriangleData triangleData(sbtData);
+
+    const vec3f lightSourceDir = -triangleData.Ns;  //the normal of the light plate
+
+#ifndef PARALLEL_LIGHT //area light
     prd.anyHitLight = true;
+#else //parallel light
+    if(dot(triangleData.rayDir, lightSourceDir) > 0.99f) prd.anyHitLight = true;
+#endif
 }
 
 } // ::osc

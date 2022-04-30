@@ -21,12 +21,14 @@
 #include <GL/gl.h>
 
 #include "color.cuh"
+#include "LaunchParams.h"
 
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
 
 #include <string>
+#include <cstdlib>
 #include <vector>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -34,7 +36,7 @@
 
 #define AutoSaveImageAtNthFrame
 #ifdef AutoSaveImageAtNthFrame
-#define FrameToSave 10000
+#define FrameToSave 5000
 #endif
 
 /*! \namespace osc - Optix Siggraph Course */
@@ -71,6 +73,10 @@ namespace osc
             //ImGui::ShowDemoWindow();
             sample.downloadPixels(pixels.data());
 
+            //int w = fbSize.x, h = fbSize.y;
+            //PPD *ppd = new PPD[w*h];        //per pixel data
+            //sample.downloadPPD(ppd, w, h);  //CONSUME PCIE A LOT
+
             ImGui::Begin("fps counter");
             ImGui::Text("Frame ID: %d", sample.getAccumID());
             ImGui::Text("Application %.3f ms/frame (%.1f FPS)", ImGui::GetIO().DeltaTime * 1000.f, 1.f / ImGui::GetIO().DeltaTime);
@@ -98,6 +104,7 @@ namespace osc
 
             }
 #endif
+            //delete[] ppd;
         }
 
         virtual void draw() override
@@ -180,7 +187,9 @@ namespace osc
                     //"../../models/Scene_high_obj_2_2.obj" //waterDrop
                     //"../../models/torus.obj" //torus
                     //"../../models/one_light_DSL.obj" //waterDrop
-                    "../../models/prism/80.obj" //prism
+                    //"../../models/prism/80.obj" //prism
+                    "../../models/eggSpectral/egg_experiment.obj"
+                    //"../../models/boundtest.obj" //prism
 #else
                     // on linux, common practice is to have ONE level of build dir
                     // (say, <project>/build/)...
@@ -191,7 +200,8 @@ namespace osc
             //Camera camera = {vec3f(0.0f, 6.0f, 25.0f), vec3f(0.0f, 3.0f, 0.0f), vec3f(0.0f, 1.0f, 0.0f)}; //dragonBall
             //Camera camera = {vec3f(0.0f, 3.5f, 50.0f), vec3f(0.0f, 5.0f, 0.0f), vec3f(0.0f, 1.0f, 0.0f)}; //waterDrop
             //Camera camera = {vec3f(0.f, 1.f, 30.0f), vec3f(0.0f, 0.0f, 0.0f), vec3f(0.0f, 1.0f, 0.0f)}; //torus
-            Camera camera = {vec3f(59.58f, 13.55f, 4.25f), vec3f(11.22f, 5.08f, -5.366f), vec3f(0.0f, 1.0f, 0.0f)}; //prism
+            //Camera camera = {vec3f(59.58f, 13.55f, 4.25f), vec3f(11.22f, 5.08f, -5.366f), vec3f(0.0f, 1.0f, 0.0f)}; //prism
+            Camera camera = {vec3f(30.f, 20.f, -60.f), vec3f(11.22f, 5.08f, -5.366f), vec3f(0.0f, 1.0f, 0.0f)}; //egg_experiment.obj
             //Camera camera = { /*from*/vec3f(0.f, 17.f, 70.f),
             //        /* at */ vec3f(0.f, 17.0f, 65), //model->bounds.center()
             //        /* up */vec3f(0.f, 1.f, 0.f)};

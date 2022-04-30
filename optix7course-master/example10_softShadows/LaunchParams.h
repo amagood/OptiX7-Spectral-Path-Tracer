@@ -18,6 +18,7 @@
 
 #include "gdt/math/vec.h"
 #include "optix7.h"
+#include "myVector.cuh"
 
 namespace osc {
   using namespace gdt;
@@ -39,7 +40,19 @@ namespace osc {
 
   struct PPD //per pixel data
   {
-      int owo;
+      vec3f lastGlassNormal;
+      float lastGlassR;
+
+      vec3f lastRayOrigin;
+      vec3f lastRayDirection;
+
+      bool firstHitGlass;
+
+      static const int capacity = 16;
+      int currentOfGlassTriangleHitList = 0;
+      int glassTriangleHitList[capacity];
+
+      int maxBoundary, minBoundary;
   };
 
   struct LaunchParams

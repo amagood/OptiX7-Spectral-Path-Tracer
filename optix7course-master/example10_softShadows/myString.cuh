@@ -50,5 +50,4 @@ __device__ const char* my_strstr(const char* X, const char* Y)
 
     return NULL;
 }
-
 #endif //OPTIX7COURSE_MYSTRING_CUH
