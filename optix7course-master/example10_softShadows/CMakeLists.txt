@@ -26,10 +26,11 @@ include_directories("../common/3rdParty")
 link_directories("../common/lib")
 
 
-cuda_compile_and_embed(embedded_ptx_code devicePrograms.cu color.cuh TriangleData.cuh myVector.cuh)
+cuda_compile_and_embed(embedded_ptx_code devicePrograms.cu color.cuh TriangleData.cuh myVector.cuh )
 
 add_executable(ex10_softShadows
         ${embedded_ptx_code}
+        re.cuh
         optix7.h
         CUDABuffer.h
         LaunchParams.h
@@ -52,4 +53,5 @@ target_link_libraries(ex10_softShadows
         glfw
         ${OPENGL_gl_LIBRARY}
         glew32.lib glew32s.lib
+        clip
         )

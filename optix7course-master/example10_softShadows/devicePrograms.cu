@@ -22,6 +22,7 @@
 #include "LaunchParams.h"
 #include "gdt/random/random.h"
 #include "TriangleData.cuh"
+#include "re.cuh"
 
 #define SPECTRAL_MODE
 #define PARALLEL_LIGHT
@@ -39,7 +40,7 @@
 using namespace osc;
 
 #define NUM_LIGHT_SAMPLES 1
-#define NUM_PIXEL_SAMPLES 32
+#define NUM_PIXEL_SAMPLES 128
 constexpr int RRBeginDepth = 4;
 #define maxDepth 7
 
@@ -985,9 +986,9 @@ extern "C" __global__ void __raygen__renderFrame()
                 pixelColor += sampledWavedColor;
                 //pixelColor = vec3f(100000.f, 0, 0);
             }
-            else if(my_strstr(prd.pathREGEX, "S") == nullptr) // non S path
+            else if(my_strstr(prd.pathREGEX, "S") == nullptr || my_strstr(prd.pathREGEX, "R") == nullptr) // non S path
             {
-                //pixelColor = vec3f(0.f, 0.f, 1e6);
+                //pixelColor = vec3f(1e1, 0.f, 0.f);
                 pixelColor += prd.pixelColor * vec3f(1.31333, 1.27419, 0.917824);
             }
             else
@@ -1000,6 +1001,10 @@ extern "C" __global__ void __raygen__renderFrame()
 #else
             pixelColor += prd.pixelColor;
 #endif
+            //if(ix == 1254 && iy == 370 && my_strstr(prd.pathREGEX, "L") != nullptr)
+            //{
+            //    printf("TEST %s\n", prd.pathREGEX);
+            //}
         }
 
     }
@@ -1034,6 +1039,7 @@ extern "C" __global__ void __raygen__renderFrame()
         optixLaunchParams.frame.colorBuffer[fbIndex] = rgba;
         //printf("%d\n", oldG);
     }
+
 }
 
 extern "C" __global__ void __closesthit__radiance()  //diffuse

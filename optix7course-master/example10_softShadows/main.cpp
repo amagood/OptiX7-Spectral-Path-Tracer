@@ -31,6 +31,8 @@
 #include <cstdlib>
 #include <vector>
 
+#include "clip.h"
+
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
@@ -38,6 +40,7 @@
 #ifdef AutoSaveImageAtNthFrame
 #define FrameToSave 5000
 #endif
+
 
 /*! \namespace osc - Optix Siggraph Course */
 namespace osc
@@ -89,6 +92,27 @@ namespace osc
                 std::cout << "outputting file to " << outputPath << std::endl;
 
                 stbi_write_png(outputPath.c_str(), fbSize.x, fbSize.y, 4, pixels.data(), 4 * fbSize.x);
+            }
+
+            if(ImGui::Button("Copy Image"))
+            {
+                //handle_copy_image_to_clipboard(pixels.data(), fbSize.x, fbSize.y);
+
+                clip::image_spec spec;
+                spec.width = fbSize.x;
+                spec.height = fbSize.y;
+                spec.bits_per_pixel = 32;
+                spec.bytes_per_row = spec.width * 4;
+                spec.red_mask = 0x000000ff;
+                spec.green_mask = 0x0000ff00;
+                spec.blue_mask = 0x00ff0000;
+                spec.alpha_mask = 0xff000000;
+                spec.red_shift = 0;
+                spec.green_shift = 8;
+                spec.blue_shift = 16;
+                spec.alpha_shift = 24;
+                const clip::image img(pixels.data(), spec);
+                clip::set_image(img);
             }
 
             ImGui::End();

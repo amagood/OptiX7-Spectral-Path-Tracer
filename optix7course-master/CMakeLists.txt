@@ -72,6 +72,12 @@ add_subdirectory(common/glfWindow EXCLUDE_FROM_ALL)
 set(optix_LIBRARY "")
 
 
+set(CLIP_EXAMPLES OFF CACHE BOOL "Compile clip examples")
+set(CLIP_TESTS OFF CACHE BOOL "Compile clip tests")
+add_subdirectory("./common/3rdParty/clip")
+include_directories("./common/3rdParty/clip")
+
+
 add_subdirectory(example10_softShadows)
 
 
